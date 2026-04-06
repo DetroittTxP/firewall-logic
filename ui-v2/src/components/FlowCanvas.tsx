@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useMemo, useRef } from 'react';
+import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import {
     ReactFlow,
     addEdge,
@@ -31,6 +31,23 @@ export function FlowCanvas() {
     const [nodes, setNodes, onNodesChange] = useNodesState(INIT_NODES);
     const [edges, setEdges, onEdgesChange] = useEdgesState(INIT_EDGES);
     const [selectedId, setSelectedId] = useState<string | null>(null);
+
+    // ── Undo / Redo ──────────────────────────────────────────
+    type Snapshot = { nodes: Node[]; edges: Edge[] };
+    const nodesRef = useRef(nodes);
+    nodesRef.current = nodes;
+    const edgesRef = useRef(edges);
+    edgesRef.current = edges;
+    const historyRef = useRef<Snapshot[]>([]);
+    const futureRef = useRef<Snapshot[]>([]);
+
+    const pushHistory = useCallback(() => {
+        historyRef.current = [
+            ...historyRef.current,
+            { nodes: nodesRef.current, edges: edgesRef.current },
+        ].slice(-50);
+        futureRef.current = [];
+    }, []);
     const [modal, setModal] = useState<ExportResult | null>(null);
     const [modalTab, setModalTab] = useState<ExportModalTab>('readable');
 
@@ -109,11 +126,12 @@ export function FlowCanvas() {
 
     const onConnect = useCallback(
         (params: Connection) => {
+            pushHistory();
             setEdges(eds =>
                 addEdge({ ...params, ...makeEdgeStyle(params.sourceHandle) } as Edge, eds),
             );
         },
-        [setEdges],
+        [setEdges, pushHistory],
     );
 
     const onDragOver = useCallback((e: React.DragEvent<HTMLDivElement>) => {
@@ -127,26 +145,93 @@ export function FlowCanvas() {
             const type = e.dataTransfer.getData('rf/type');
             const dataStr = e.dataTransfer.getData('rf/data');
             if (!type) return;
+            pushHistory();
             const position = screenToFlowPosition({ x: e.clientX, y: e.clientY });
             const data = dataStr ? (JSON.parse(dataStr) as Record<string, unknown>) : {};
             setNodes(nds => [...nds, { id: `n${nid++}`, type, position, data }]);
         },
-        [screenToFlowPosition, setNodes],
+        [screenToFlowPosition, setNodes, pushHistory],
     );
 
     const deleteSelected = useCallback(() => {
         if (!selectedId) return;
+        pushHistory();
         setNodes(nds => nds.filter(n => n.id !== selectedId));
         setEdges(eds => eds.filter(e => e.source !== selectedId && e.target !== selectedId));
         setSelectedId(null);
-    }, [selectedId, setNodes, setEdges]);
+    }, [selectedId, setNodes, setEdges, pushHistory]);
+
+    // ── Copy / Paste ─────────────────────────────────────────
+    const clipboardRef = useRef<Node | null>(null);
+
+    useEffect(() => {
+        const handler = (e: KeyboardEvent) => {
+            const tag = (e.target as HTMLElement).tagName;
+            if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+
+            const ctrl = e.ctrlKey || e.metaKey;
+
+            if (ctrl && e.key === 'z' && !e.shiftKey) {
+                e.preventDefault();
+                if (historyRef.current.length === 0) return;
+                const prev = historyRef.current[historyRef.current.length - 1];
+                futureRef.current = [
+                    { nodes: nodesRef.current, edges: edgesRef.current },
+                    ...futureRef.current,
+                ].slice(0, 50);
+                historyRef.current = historyRef.current.slice(0, -1);
+                setNodes(prev.nodes);
+                setEdges(prev.edges);
+                return;
+            }
+
+            if (ctrl && (e.key === 'y' || (e.shiftKey && e.key === 'z'))) {
+                e.preventDefault();
+                if (futureRef.current.length === 0) return;
+                const next = futureRef.current[0];
+                historyRef.current = [
+                    ...historyRef.current,
+                    { nodes: nodesRef.current, edges: edgesRef.current },
+                ].slice(-50);
+                futureRef.current = futureRef.current.slice(1);
+                setNodes(next.nodes);
+                setEdges(next.edges);
+                return;
+            }
+
+            if (ctrl && e.key === 'c') {
+                if (!selectedId) return;
+                setNodes(nds => {
+                    const node = nds.find(n => n.id === selectedId);
+                    if (node) clipboardRef.current = node;
+                    return nds;
+                });
+            }
+            if (ctrl && e.key === 'v') {
+                const src = clipboardRef.current;
+                if (!src) return;
+                pushHistory();
+                const newNode: Node = {
+                    ...src,
+                    id: `n${nid++}`,
+                    position: { x: src.position.x + 30, y: src.position.y + 30 },
+                    data: { ...src.data },
+                };
+                setNodes(nds => [...nds, newNode]);
+                setSelectedId(newNode.id);
+            }
+        };
+        window.addEventListener('keydown', handler);
+        return () => window.removeEventListener('keydown', handler);
+    }, [selectedId, setNodes, setEdges, pushHistory]);
 
     const clearAll = useCallback(() => {
         if (!window.confirm('Clear all nodes and connections?')) return;
+        pushHistory();
         setNodes([]);
         setEdges([]);
         setSelectedId(null);
-    }, [setNodes, setEdges]);
+    }, [setNodes, setEdges, pushHistory]);
 
     return (
         <div
@@ -198,6 +283,8 @@ export function FlowCanvas() {
                         onPaneClick={() => setSelectedId(null)}
                         nodeTypes={nodeTypes}
                         deleteKeyCode="Delete"
+                        onBeforeDelete={async () => { pushHistory(); return true; }}
+                        onNodeDragStart={() => pushHistory()}
                         snapToGrid
                         snapGrid={[15, 15]}
                         fitView
