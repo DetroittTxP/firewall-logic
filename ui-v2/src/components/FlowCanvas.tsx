@@ -256,13 +256,13 @@ export function FlowCanvas() {
                 deleteSelected={deleteSelected}
                 selectedId={selectedId}
             />
-
             <ExportModal
                 modal={modal}
                 modalTab={modalTab}
                 setModalTab={setModalTab}
                 onClose={() => setModal(null)}
             />
+
 
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
                 <TopBar />
