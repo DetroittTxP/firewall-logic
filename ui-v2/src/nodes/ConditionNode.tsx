@@ -1,22 +1,43 @@
 import { Handle, Position } from '@xyflow/react';
 import type { NodeProps } from '@xyflow/react';
-import { COND_HANDLES, HS } from '@/constants';
-import type { UpdateNodeFn, ConditionField } from '@/types';
+import { HANDLE_MAP, HS } from '@/constants';
+import type { UpdateNodeFn, ConditionField, ConditionMatch } from '@/types';
+
+const FIELD_OPTIONS: { value: ConditionField; label: string }[] = [
+    { value: 'src',  label: 'SRC — Source IP' },
+    { value: 'dest', label: 'DEST — Destination IP' },
+    { value: 'port', label: 'PORT / Protocol' },
+];
+
+const MATCH_OPTIONS: { value: ConditionMatch; label: string }[] = [
+    { value: 'exact',   label: 'exact' },
+    { value: 'contain', label: 'contain' },
+    { value: 'any',     label: 'any / *' },
+    { value: 'new',     label: 'new / none' },
+];
+
+const FIELD_LABELS: Record<ConditionField, string> = {
+    src:  'source',
+    dest: 'destination',
+    port: 'port',
+};
 
 export function ConditionNode({ id, data }: NodeProps) {
     const updateNode = data.updateNode as UpdateNodeFn;
     const field = (data.field as ConditionField) ?? 'src';
+    const match = (data.match as ConditionMatch) ?? 'exact';
+    const matchColor = HANDLE_MAP[match]?.color ?? '#94a3b8';
 
     return (
         <div
             style={{
-                padding: '10px 12px 28px',
+                padding: '10px 12px 14px',
                 borderRadius: '8px',
                 background: '#ffffff',
                 color: '#09090b',
                 fontSize: '12px',
                 fontFamily: 'sans-serif',
-                border: '2px solid #18181b',
+                border: `2px solid ${matchColor}`,
                 minWidth: '215px',
                 boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
                 position: 'relative',
@@ -39,6 +60,7 @@ export function ConditionNode({ id, data }: NodeProps) {
                 🔍 Check Field
             </div>
 
+            {/* Field dropdown */}
             <select
                 value={field}
                 onChange={e => updateNode(id, { field: e.target.value as ConditionField })}
@@ -52,57 +74,59 @@ export function ConditionNode({ id, data }: NodeProps) {
                     border: '1px solid #e4e4e7',
                     fontSize: '12px',
                     cursor: 'pointer',
+                    marginBottom: '6px',
                 }}
             >
-                <option value="src">SRC — Source IP</option>
-                <option value="dest">DEST — Destination IP</option>
-                <option value="port">PORT / Protocol</option>
+                {FIELD_OPTIONS.map(o => (
+                    <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
             </select>
 
-            {/* Handle labels row */}
-            <div
+            {/* Match dropdown */}
+            <select
+                value={match}
+                onChange={e => updateNode(id, { match: e.target.value as ConditionMatch })}
+                className="nodrag"
                 style={{
-                    display: 'flex',
-                    position: 'absolute',
-                    bottom: 6,
-                    left: 0,
-                    right: 0,
-                    padding: '0 4px',
+                    width: '100%',
+                    padding: '5px 8px',
+                    borderRadius: '5px',
+                    background: '#f4f4f5',
+                    color: '#09090b',
+                    border: '1px solid #e4e4e7',
+                    fontSize: '12px',
+                    cursor: 'pointer',
                 }}
             >
-                {COND_HANDLES.map(h => (
-                    <span
-                        key={h.id}
-                        style={{
-                            color: h.color,
-                            fontSize: '9px',
-                            textAlign: 'center',
-                            flex: 1,
-                            fontWeight: 600,
-                        }}
-                    >
-                        {h.label}
-                    </span>
+                {MATCH_OPTIONS.map(o => (
+                    <option key={o.value} value={o.value}>{o.label}</option>
                 ))}
+            </select>
+
+            {/* Condition preview */}
+            <div
+                style={{
+                    marginTop: '8px',
+                    padding: '5px 8px',
+                    borderRadius: '4px',
+                    background: '#f4f4f5',
+                    fontSize: '11px',
+                    color: '#3f3f46',
+                }}
+            >
+                if{' '}
+                <strong style={{ color: '#09090b' }}>{FIELD_LABELS[field]}</strong>
+                {' '}is{' '}
+                <strong style={{ color: matchColor }}>{HANDLE_MAP[match]?.label ?? match}</strong>
             </div>
 
-            {/* Output handles */}
-            {COND_HANDLES.map((h, i) => (
-                <Handle
-                    key={h.id}
-                    type="source"
-                    position={Position.Bottom}
-                    id={h.id}
-                    style={{
-                        ...HS,
-                        left: `${(i + 0.5) * 25}%`,
-                        bottom: -6,
-                        background: h.color,
-                        borderRadius: '50%',
-                        border: '2px solid #ffffff',
-                    }}
-                />
-            ))}
+            {/* Single output handle */}
+            <Handle
+                type="source"
+                position={Position.Bottom}
+                id="out"
+                style={{ ...HS, bottom: -6, background: matchColor }}
+            />
         </div>
     );
 }

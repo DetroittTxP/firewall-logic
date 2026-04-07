@@ -2,19 +2,20 @@ import { MarkerType } from '@xyflow/react';
 import type { Edge } from '@xyflow/react';
 import { HANDLE_MAP } from '@/constants';
 
-export function makeEdgeStyle(handleId: string | null | undefined): Partial<Edge> {
-    const h = handleId ? HANDLE_MAP[handleId] : undefined;
+/**
+ * Returns edge style props.
+ * Pass `matchOverride` (e.g. a condition node's match value like 'exact') to
+ * look up color/label from HANDLE_MAP when the physical handle id is 'out'.
+ */
+export function makeEdgeStyle(
+    handleId: string | null | undefined,
+    matchOverride?: string,
+): Partial<Edge> {
+    const lookupKey = matchOverride ?? handleId;
+    const h = lookupKey ? HANDLE_MAP[lookupKey] : undefined;
     const color = h ? h.color : '#94a3b8';
     return {
         markerEnd: { type: MarkerType.ArrowClosed, color },
         style: { stroke: color, strokeWidth: 2 },
-        ...(h
-            ? {
-                label: h.label,
-                labelStyle: { fontSize: 10, fontWeight: 700, fill: color },
-                labelBgStyle: { fill: '#ffffff', opacity: 0.95 },
-                labelBgPadding: [4, 5] as [number, number],
-            }
-            : {}),
     };
 }

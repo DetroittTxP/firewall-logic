@@ -30,7 +30,7 @@ function DraggableItem({ item }: { item: PaletteItem }) {
     );
 }
 
-export function TopBar() {
+export function TopBar({ onRun }: { onRun: () => void }) {
     return (
         <div
             style={{
@@ -79,6 +79,27 @@ export function TopBar() {
                     />
                 </div>
             ))}
+
+            {/* Run button */}
+            <button
+                onClick={onRun}
+                style={{
+                    marginLeft: 'auto',
+                    flexShrink: 0,
+                    background: '#18181b',
+                    color: '#fafafa',
+                    border: 'none',
+                    borderRadius: '6px',
+                    padding: '6px 16px',
+                    fontSize: '12px',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    letterSpacing: '0.03em',
+                    boxShadow: '0 1px 4px rgba(0,0,0,0.15)',
+                }}
+            >
+                ▶  Run
+            </button>
         </div>
     );
 }

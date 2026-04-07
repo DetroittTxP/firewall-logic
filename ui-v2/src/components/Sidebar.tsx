@@ -101,7 +101,7 @@ export function Sidebar({
                         letterSpacing: '0.04em',
                     }}
                 >
-                    Condition outputs
+                    Match types
                 </div>
                 {COND_HANDLES.map(h => (
                     <div

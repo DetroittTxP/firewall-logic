@@ -12,15 +12,16 @@ import {
     useReactFlow,
 } from '@xyflow/react';
 import type { Connection, Node, Edge } from '@xyflow/react';
-import { ACTIONS } from '@/constants';
+import { ACTIONS, HANDLE_MAP } from '@/constants';
 import { makeEdgeStyle } from '@/utils/edgeStyle';
-import { buildLogic, buildYAML } from '@/utils/exporters';
+import { buildLogic, buildYAML, buildWorkflowPaths } from '@/utils/exporters';
 import { nodeTypes } from '@/nodes';
 import { INIT_NODES, INIT_EDGES } from '@/data/initialGraph';
 import { Sidebar } from '@/components/Sidebar';
 import { TopBar } from '@/components/TopBar';
 import { ExportModal } from '@/components/ExportModal';
-import type { ProfileMap, ExportResult, ExportModalTab } from '@/types';
+import { WorkflowModal } from '@/components/WorkflowModal';
+import type { ProfileMap, ExportResult, ExportModalTab, WorkflowPath } from '@/types';
 
 let nid = 100;
 
@@ -50,6 +51,7 @@ export function FlowCanvas() {
     }, []);
     const [modal, setModal] = useState<ExportResult | null>(null);
     const [modalTab, setModalTab] = useState<ExportModalTab>('readable');
+    const [workflowPaths, setWorkflowPaths] = useState<WorkflowPath[] | null>(null);
 
     // ── Profiles ────────────────────────────────────────────
     const [profiles, setProfiles] = useState<ProfileMap>(() => {
@@ -110,6 +112,10 @@ export function FlowCanvas() {
         setModalTab('readable');
     }, [nodes, edges]);
 
+    const openWorkflow = useCallback(() => {
+        setWorkflowPaths(buildWorkflowPaths(nodes, edges));
+    }, [nodes, edges]);
+
     const updateNode = useCallback(
         (id: string, patch: Record<string, unknown>) => {
             setNodes(nds =>
@@ -127,8 +133,13 @@ export function FlowCanvas() {
     const onConnect = useCallback(
         (params: Connection) => {
             pushHistory();
+            // For condition nodes, color the edge by the node's current match type
+            const sourceNode = nodesRef.current.find(n => n.id === params.source);
+            const styleHandle = sourceNode?.type === 'conditionNode'
+                ? ((sourceNode.data.match as string) ?? 'exact')
+                : params.sourceHandle;
             setEdges(eds =>
-                addEdge({ ...params, ...makeEdgeStyle(params.sourceHandle) } as Edge, eds),
+                addEdge({ ...params, ...makeEdgeStyle(styleHandle) } as Edge, eds),
             );
         },
         [setEdges, pushHistory],
@@ -262,10 +273,14 @@ export function FlowCanvas() {
                 setModalTab={setModalTab}
                 onClose={() => setModal(null)}
             />
+            <WorkflowModal
+                paths={workflowPaths}
+                onClose={() => setWorkflowPaths(null)}
+            />
 
 
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-                <TopBar />
+                <TopBar onRun={openWorkflow} />
 
                 <div
                     style={{ flex: 1 }}

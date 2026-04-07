@@ -2,6 +2,8 @@
 
 export type ConditionField = 'src' | 'dest' | 'port';
 
+export type ConditionMatch = 'exact' | 'contain' | 'any' | 'new';
+
 export type ActionKey =
     | 'skip'
     | 'add_port'
@@ -32,6 +34,7 @@ export interface EndNodeBaseData {
 
 export interface ConditionNodeBaseData {
     field: ConditionField;
+    match: ConditionMatch;
 }
 
 export interface ActionNodeBaseData {
@@ -76,3 +79,12 @@ export interface ExportResult {
     yaml: string;
     json: string;
 }
+
+// ─── Workflow runner ───────────────────────────────────────────────────────────
+export interface WorkflowStep {
+    type: 'start' | 'condition' | 'action' | 'end';
+    label: string;
+    color: string;
+}
+
+export type WorkflowPath = WorkflowStep[];

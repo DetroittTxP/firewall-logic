@@ -1,6 +1,6 @@
 import type { Node, Edge } from '@xyflow/react';
 import { ACTIONS, HANDLE_MAP } from '@/constants';
-import type { ExportResult } from '@/types';
+import type { ExportResult, WorkflowPath, WorkflowStep } from '@/types';
 
 type AdjEntry = { handle: string | null; targetId: string };
 type AdjMap = Record<string, AdjEntry[]>;
@@ -37,12 +37,11 @@ export function buildLogic(nodes: Node[], edges: Edge[]): ExportResult {
             rLines.push('▶  New firewall rule arrives');
             pLines.push('def handle_new_rule(rule, existing_rules):');
         } else if (node.type === 'conditionNode') {
-            const f = ((node.data.field as string) ?? 'field').toUpperCase();
-            rLines.push(`${pad}${pfx}Check ${f} against existing rules:`);
+            const f = ((node.data.field as string) ?? 'src').toLowerCase();
+            const m = (node.data.match as string) ?? 'exact';
+            rLines.push(`${pad}${pfx}if ${f} is "${m}":`);
             if (branchLabel) pLines.push(`${pad}# ↳ reached when: ${branchLabel}`);
-            pLines.push(
-                `${pad}${f.toLowerCase()}_match = check_field(rule.${f.toLowerCase()}, existing_rules)`,
-            );
+            pLines.push(`${pad}if check_field(rule.${f}, existing_rules) == "${m}":`);
         } else if (node.type === 'actionNode') {
             const actionKey = node.data.action as string;
             const a = ACTIONS[actionKey as keyof typeof ACTIONS]?.label ?? actionKey;
@@ -58,14 +57,7 @@ export function buildLogic(nodes: Node[], edges: Edge[]): ExportResult {
         const children = adj[nodeId] ?? [];
 
         if (node.type === 'conditionNode') {
-            const f = ((node.data.field as string) ?? 'field').toLowerCase();
-            children.forEach(({ handle, targetId }, idx) => {
-                const h = handle ? HANDLE_MAP[handle] : undefined;
-                const lbl = h?.label ?? handle ?? 'unknown';
-                rLines.push(`${pad}  if ${f} is "${lbl}":`);
-                pLines.push(`${pad}${idx === 0 ? 'if' : 'elif'} ${f}_match == "${handle}":`);
-                tr(targetId, depth + 2, null);
-            });
+            children.forEach(({ targetId }) => tr(targetId, depth + 1, null));
         } else {
             children.forEach(({ targetId }) => tr(targetId, depth, null));
         }
@@ -109,11 +101,16 @@ export function buildYAML(nodes: Node[], edges: Edge[]): string {
         const result: string[] = [];
 
         if (node.type === 'conditionNode') {
-            result.push(`${pad}- check: ${(node.data.field as string) ?? 'field'}`);
-            children.forEach(({ handle, targetId }) => {
-                result.push(`${cont}${handle ?? 'unknown'}:`);
-                result.push(...nodeToYaml(targetId, itemIndent + 4));
-            });
+            const field = (node.data.field as string) ?? 'field';
+            const match = (node.data.match as string) ?? 'exact';
+            result.push(`${pad}- check: ${field}`);
+            result.push(`${cont}match: ${match}`);
+            if (children.length > 0) {
+                result.push(`${cont}then:`);
+                children.forEach(({ targetId }) => {
+                    result.push(...nodeToYaml(targetId, itemIndent + 4));
+                });
+            }
         } else if (node.type === 'actionNode') {
             result.push(`${pad}- action: ${node.data.action}`);
             children.forEach(({ targetId }) => result.push(...nodeToYaml(targetId, itemIndent)));
@@ -148,11 +145,12 @@ export function buildJSON(nodes: Node[], edges: Edge[]): string {
 
         if (node.type === 'conditionNode') {
             const field = (node.data.field as string) ?? 'field';
-            const branches: Record<string, unknown> = {};
-            children.forEach(({ handle, targetId }) => {
-                branches[handle ?? 'unknown'] = nodeToObj(targetId);
-            });
-            return { check: field, branches };
+            const match = (node.data.match as string) ?? 'exact';
+            if (children.length === 0) return { check: field, match };
+            const thenVal = children.length === 1
+                ? nodeToObj(children[0].targetId)
+                : children.map(c => nodeToObj(c.targetId));
+            return { check: field, match, then: thenVal };
         } else if (node.type === 'actionNode') {
             const action = node.data.action as string;
             const next = children[0] ? nodeToObj(children[0].targetId) : null;
@@ -176,4 +174,60 @@ export function buildJSON(nodes: Node[], edges: Edge[]): string {
     };
 
     return JSON.stringify(result, null, 2);
+}
+
+// ─── Workflow runner ──────────────────────────────────────────────────────────
+// Enumerates all paths from Start → End as flat step arrays.
+
+export function buildWorkflowPaths(nodes: Node[], edges: Edge[]): WorkflowPath[] {
+    const nodeMap: Record<string, Node> = Object.fromEntries(nodes.map(n => [n.id, n]));
+    const adj: AdjMap = {};
+    edges.forEach(e => {
+        (adj[e.source] ??= []).push({ handle: e.sourceHandle ?? null, targetId: e.target });
+    });
+
+    const startNode = nodes.find(n => n.type === 'startNode');
+    if (!startNode) return [];
+
+    const paths: WorkflowPath[] = [];
+
+    function dfs(nodeId: string, current: WorkflowStep[], visited: Set<string>): void {
+        if (visited.has(nodeId)) return;
+        const node = nodeMap[nodeId];
+        if (!node) return;
+
+        let step: WorkflowStep;
+
+        if (node.type === 'startNode') {
+            step = { type: 'start', label: '▶  Start', color: '#18181b' };
+        } else if (node.type === 'conditionNode') {
+            const f = (node.data.field as string) ?? 'src';
+            const m = (node.data.match as string) ?? 'exact';
+            const color = HANDLE_MAP[m]?.color ?? '#3f3f46';
+            step = { type: 'condition', label: `if ${f} is "${m}"`, color };
+        } else if (node.type === 'actionNode') {
+            const actionKey = node.data.action as string;
+            const a = ACTIONS[actionKey as keyof typeof ACTIONS];
+            step = { type: 'action', label: a?.label ?? actionKey, color: a?.color ?? '#3f3f46' };
+        } else if (node.type === 'endNode') {
+            step = { type: 'end', label: '🏁  Done', color: '#71717a' };
+            paths.push([...current, step]);
+            return;
+        } else {
+            return;
+        }
+
+        const children = adj[nodeId] ?? [];
+        if (children.length === 0) {
+            paths.push([...current, step]);
+            return;
+        }
+
+        const nextVisited = new Set(visited);
+        nextVisited.add(nodeId);
+        children.forEach(({ targetId }) => dfs(targetId, [...current, step], nextVisited));
+    }
+
+    dfs(startNode.id, [], new Set());
+    return paths;
 }
